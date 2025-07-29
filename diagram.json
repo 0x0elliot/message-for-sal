@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "author": "WiFi Message Player Project",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 4.7,
+      "left": -5,
+      "attrs": { "builder": "esp-idf" }
+    },
+    { "type": "wokwi-buzzer", "id": "buzzer1", "top": 15.6, "left": 137.6, "attrs": {} },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn-play",
+      "top": 77.4,
+      "left": -117.2,
+      "attrs": { "color": "green", "bounce": "0" }
+    },
+    { "type": "wokwi-ssd1306", "id": "oled1", "top": -108.5, "left": 174.7, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+    [ "esp:GND.1", "buzzer1:2", "black", [] ],
+    [ "esp:D18", "buzzer1:1", "red", [] ],
+    [ "btn-play:2.r", "esp:GND.2", "black", [ "v0" ] ],
+    [ "btn-play:1.r", "esp:D2", "green", [ "h16.51", "v53.16" ] ],
+    [ "oled1:GND", "esp:GND.1", "black", [ "v9.6", "h-76.8" ] ],
+    [ "oled1:VCC", "esp:3V3", "red", [ "v19.2", "h-76.8" ] ],
+    [ "oled1:SDA", "esp:D21", "blue", [ "v28.8", "h-67.2" ] ],
+    [ "oled1:SCL", "esp:D22", "yellow", [ "v38.4", "h-57.6" ] ]
+  ],
+  "dependencies": {}
+}
