@@ -31,7 +31,7 @@ WIFI_NETWORKS = {
 MESSAGE_URL = "https://raw.githubusercontent.com/0x0elliot/message-for-sal/main/message.txt"
 
 # Simple encryption key (change this for security)
-ENCRYPTION_KEY = "X9mK2vN8qP4wR7eL5nM3jQ6hF1dG9sA2"
+ENCRYPTION_KEY = "37467725117034429006982607598819"  # 13 characters - change this!
 
 # Complete Happy Birthday Melody (in Hz) - Key of C
 melody1 = [
@@ -110,7 +110,8 @@ class MusicPlayer:
         self.wifi_connect_start = 0
         self.wifi_connect_timeout = 5000  # 5 second timeout
         self.last_message_fetch = 0
-        self.message_fetch_interval = 600000  # 10 minutes in milliseconds
+        # self.message_fetch_interval = 600000  # 10 minutes in milliseconds
+        self.message_fetch_interval = 5000
         
         print("ESP32 Birthday Player Ready!")
         self.display_message()  # Show default message first
@@ -170,20 +171,28 @@ class MusicPlayer:
             print("WiFi connection timeout - will retry in 10 seconds")
     
     def simple_decrypt(self, encrypted_text):
-        """Simple XOR decryption"""
+        """Simple Caesar cipher decryption - no imports needed"""
         try:
-            # Remove any whitespace and convert from hex
+            # Remove any whitespace
             encrypted_text = encrypted_text.strip().replace('\n', '').replace('\r', '')
-            encrypted_bytes = binascii.unhexlify(encrypted_text)
             
-            # XOR decrypt with key
+            # Simple Caesar cipher with shift based on key
+            shift = len(ENCRYPTION_KEY) % 26  # Use key length as shift
             decrypted = ""
-            key_len = len(ENCRYPTION_KEY)
             
-            for i, byte in enumerate(encrypted_bytes):
-                key_char = ENCRYPTION_KEY[i % key_len]
-                decrypted_char = chr(byte ^ ord(key_char))
-                decrypted += decrypted_char
+            for char in encrypted_text:
+                if char.isalpha():
+                    # Shift letters
+                    ascii_offset = 65 if char.isupper() else 97
+                    shifted = ((ord(char) - ascii_offset - shift) % 26) + ascii_offset
+                    decrypted += chr(shifted)
+                elif char.isdigit():
+                    # Shift numbers
+                    shifted = ((int(char) - shift) % 10)
+                    decrypted += str(shifted)
+                else:
+                    # Keep other characters as-is
+                    decrypted += char
             
             return decrypted
         except Exception as e:
