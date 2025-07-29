@@ -2,13 +2,16 @@
 # Features:
 # - Button plays/stops music
 # - Randomly picks between two songs
-# - OLED display shows "HBD Saloni <3"
+# - OLED display shows "HBD Saloni <3" or fetched message
 # - PWM buzzer for music playback
+# - WiFi connectivity to fetch messages
 
 from machine import Pin, PWM, I2C
 import time
 import random
 import ssd1306
+import network
+import urequests
 
 # Pin definitions
 BUTTON_PIN = 2
@@ -16,6 +19,16 @@ BUZZER_PIN = 18
 I2C_SDA_PIN = 21
 I2C_SCL_PIN = 22
 OLED_ADDRESS = 0x3C
+
+# WiFi credentials dictionary (Wokwi defaults)
+WIFI_NETWORKS = {
+    "Wokwi-GUEST": "",  # Wokwi's default open network
+    "IoTNetwork": "ThingsNetwork",  # Common Wokwi test network
+    "ESP32-Access-Point": "123456789"  # Another common test network
+}
+
+# GitHub raw URL for the message
+MESSAGE_URL = "https://raw.githubusercontent.com/0x0elliot/message-for-sal/main/message.txt"
 
 # Happy Birthday Melody (in Hz)
 melody1 = [
@@ -60,7 +73,7 @@ class MusicPlayer:
     def __init__(self):
         # Hardware setup
         self.button = Pin(BUTTON_PIN, Pin.IN, Pin.PULL_UP)
-        self.buzzer = PWM(Pin(BUZZER_PIN), freq=440, duty=0)  # Initialize with freq and duty=0
+        self.buzzer = PWM(Pin(BUZZER_PIN), freq=440, duty=0)
         
         # I2C and OLED setup
         self.i2c = I2C(0, sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=100000)
@@ -73,16 +86,114 @@ class MusicPlayer:
         self.current_song = 0
         self.last_button = True
         
+        # Message state
+        self.message_lines = ["HBD Saloni", "   <3"]
+        self.wifi_connected = False
+        
         print("ESP32 Birthday Player Ready!")
+        self.setup_wifi()
         self.display_message()
+    
+    def setup_wifi(self):
+        """Setup WiFi connection"""
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        
+        print("Scanning for WiFi networks...")
+        networks = wlan.scan()
+        
+        # Try to connect to known networks
+        for ssid, bssid, channel, RSSI, authmode, hidden in networks:
+            ssid_str = ssid.decode('utf-8')
+            print(f"Found network: {ssid_str}")
+            
+            if ssid_str in WIFI_NETWORKS:
+                password = WIFI_NETWORKS[ssid_str]
+                print(f"Attempting to connect to {ssid_str}...")
+                
+                if password:
+                    wlan.connect(ssid_str, password)
+                else:
+                    wlan.connect(ssid_str)
+                
+                # Wait for connection
+                for _ in range(20):  # 10 second timeout
+                    if wlan.isconnected():
+                        self.wifi_connected = True
+                        print(f"Connected to {ssid_str}!")
+                        print(f"IP address: {wlan.ifconfig()[0]}")
+                        self.fetch_message()
+                        return
+                    time.sleep(0.5)
+                
+                print(f"Failed to connect to {ssid_str}")
+        
+        print("No suitable WiFi networks found or connection failed")
+        print("Using default message")
+    
+    def fetch_message(self):
+        """Fetch message from GitHub"""
+        if not self.wifi_connected:
+            return
+        
+        try:
+            print("Fetching message from GitHub...")
+            response = urequests.get(MESSAGE_URL)
+            
+            if response.status_code == 200:
+                message_text = response.text.strip()
+                print(f"Fetched message: {message_text}")
+                
+                # Split message into lines for display (max 21 chars per line for OLED)
+                lines = []
+                words = message_text.split()
+                current_line = ""
+                
+                for word in words:
+                    if len(current_line + " " + word) <= 21:  # OLED character limit
+                        if current_line:
+                            current_line += " " + word
+                        else:
+                            current_line = word
+                    else:
+                        if current_line:
+                            lines.append(current_line)
+                        current_line = word
+                
+                if current_line:
+                    lines.append(current_line)
+                
+                # Limit to 4 lines (OLED height limitation)
+                self.message_lines = lines[:4] if lines else ["HBD Saloni", "   <3"]
+                print(f"Message lines: {self.message_lines}")
+            else:
+                print(f"HTTP error: {response.status_code}")
+            
+            response.close()
+            
+        except Exception as e:
+            print(f"Error fetching message: {e}")
+            print("Using default message")
     
     def display_message(self):
         """Display birthday message on OLED"""
         self.oled.fill(0)  # Clear display
         
-        # Center the text
-        self.oled.text("HBD Saloni", 25, 20)
-        self.oled.text("   <3", 45, 35)
+        # Display message lines (centered)
+        start_y = 10 if len(self.message_lines) <= 2 else 5
+        for i, line in enumerate(self.message_lines):
+            # Center text horizontally
+            x_pos = max(0, (128 - len(line) * 8) // 2)  # 8 pixels per character
+            y_pos = start_y + (i * 12)  # 12 pixels between lines
+            
+            if y_pos < 55:  # Make sure we don't go off screen
+                self.oled.text(line, x_pos, y_pos)
+        
+        # Show WiFi status
+        if self.wifi_connected:
+            self.oled.text("WiFi: ON", 0, 56)
+        else:
+            self.oled.text("WiFi: OFF", 0, 56)
         
         self.oled.show()
         print("Message displayed")
