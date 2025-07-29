@@ -30,20 +30,35 @@ WIFI_NETWORKS = {
 # GitHub raw URL for the message
 MESSAGE_URL = "https://raw.githubusercontent.com/0x0elliot/message-for-sal/main/message.txt"
 
-# Happy Birthday Melody (in Hz)
+# Simple encryption key (change this for security)
+ENCRYPTION_KEY = "X9mK2vN8qP4wR7eL5nM3jQ6hF1dG9sA2"
+
+# Complete Happy Birthday Melody (in Hz) - Key of C
 melody1 = [
-    264, 264, 297, 264, 352, 330,     # Happy birthday to you
-    264, 264, 297, 264, 396, 352,     # Happy birthday to you
-    264, 264, 528, 440, 352, 330, 297,# Happy birthday dear
-    466, 466, 440, 352, 396, 352      # Happy birthday to you
+    # "Happy birthday to you" (1st time)
+    264, 264, 297, 264, 352, 330,
+    # "Happy birthday to you" (2nd time) 
+    264, 264, 297, 264, 396, 352,
+    # "Happy birthday dear [Name]"
+    264, 264, 528, 440, 352, 330, 297,
+    # "Happy birthday to you" (final)
+    466, 466, 440, 352, 396, 352,
+    # Extended ending with flourish
+    0, 352, 330, 297, 264, 0  # Rest, then descending notes, final rest
 ]
 
-# Note durations in ms
+# Note durations in ms - more musical timing
 durations1 = [
-    250, 250, 500, 500, 500, 1000,
-    250, 250, 500, 500, 500, 1000,
-    250, 250, 500, 500, 500, 500, 1000,
-    250, 250, 500, 500, 500, 1000
+    # "Happy birthday to you" (1st)
+    200, 200, 400, 400, 400, 800,
+    # "Happy birthday to you" (2nd) 
+    200, 200, 400, 400, 400, 800,
+    # "Happy birthday dear [Name]"
+    200, 200, 400, 400, 400, 400, 800,
+    # "Happy birthday to you" (final)
+    200, 200, 400, 400, 400, 800,
+    # Extended ending
+    200, 300, 300, 300, 600, 400
 ]
 
 # Longer melody (simplified version for demo)
@@ -89,50 +104,94 @@ class MusicPlayer:
         # Message state
         self.message_lines = ["HBD Saloni", "   <3"]
         self.wifi_connected = False
+        self.last_wifi_check = 0
+        self.wifi_check_interval = 10000  # 10 seconds in milliseconds
+        self.wifi_connecting = False
+        self.wifi_connect_start = 0
+        self.wifi_connect_timeout = 5000  # 5 second timeout
+        self.last_message_fetch = 0
+        self.message_fetch_interval = 600000  # 10 minutes in milliseconds
         
         print("ESP32 Birthday Player Ready!")
-        self.setup_wifi()
-        self.display_message()
+        self.display_message()  # Show default message first
     
     def setup_wifi(self):
-        """Setup WiFi connection"""
-        wlan = network.WLAN(network.STA_IF)
-        wlan.active(True)
+        """Setup WiFi connection - completely non-blocking version"""
+        if self.wifi_connecting:
+            return  # Already trying to connect
         
-        print("Scanning for WiFi networks...")
-        networks = wlan.scan()
-        
-        # Try to connect to known networks
-        for ssid, bssid, channel, RSSI, authmode, hidden in networks:
-            ssid_str = ssid.decode('utf-8')
-            print(f"Found network: {ssid_str}")
+        try:
+            wlan = network.WLAN(network.STA_IF)
+            wlan.active(True)
             
-            if ssid_str in WIFI_NETWORKS:
-                password = WIFI_NETWORKS[ssid_str]
-                print(f"Attempting to connect to {ssid_str}...")
+            print("Scanning for WiFi networks...")
+            networks = wlan.scan()
+            
+            # Try to connect to known networks
+            for ssid, bssid, channel, RSSI, authmode, hidden in networks:
+                ssid_str = ssid.decode('utf-8')
                 
-                if password:
-                    wlan.connect(ssid_str, password)
-                else:
-                    wlan.connect(ssid_str)
-                
-                # Wait for connection
-                for _ in range(20):  # 10 second timeout
-                    if wlan.isconnected():
-                        self.wifi_connected = True
-                        print(f"Connected to {ssid_str}!")
-                        print(f"IP address: {wlan.ifconfig()[0]}")
-                        self.fetch_message()
-                        return
-                    time.sleep(0.5)
-                
-                print(f"Failed to connect to {ssid_str}")
+                if ssid_str in WIFI_NETWORKS:
+                    password = WIFI_NETWORKS[ssid_str]
+                    print(f"Attempting to connect to {ssid_str}...")
+                    
+                    if password:
+                        wlan.connect(ssid_str, password)
+                    else:
+                        wlan.connect(ssid_str)
+                    
+                    # Start non-blocking connection
+                    self.wifi_connecting = True
+                    self.wifi_connect_start = time.ticks_ms()
+                    break
+            
+            # Clean up
+            del networks  # Free memory
+            
+        except Exception as e:
+            print(f"WiFi setup error: {e}")
+            self.wifi_connecting = False
+    
+    def check_wifi_connection(self):
+        """Check WiFi connection status without blocking"""
+        if not self.wifi_connecting:
+            return
         
-        print("No suitable WiFi networks found or connection failed")
-        print("Using default message")
+        wlan = network.WLAN(network.STA_IF)
+        
+        if wlan.isconnected():
+            self.wifi_connected = True
+            self.wifi_connecting = False
+            print("Connected to WiFi!")
+            self.fetch_message()
+        elif time.ticks_diff(time.ticks_ms(), self.wifi_connect_start) >= self.wifi_connect_timeout:
+            # Timeout - stop trying
+            self.wifi_connecting = False
+            print("WiFi connection timeout - will retry in 10 seconds")
+    
+    def simple_decrypt(self, encrypted_text):
+        """Simple XOR decryption"""
+        try:
+            # Remove any whitespace and convert from hex
+            encrypted_text = encrypted_text.strip().replace('\n', '').replace('\r', '')
+            encrypted_bytes = binascii.unhexlify(encrypted_text)
+            
+            # XOR decrypt with key
+            decrypted = ""
+            key_len = len(ENCRYPTION_KEY)
+            
+            for i, byte in enumerate(encrypted_bytes):
+                key_char = ENCRYPTION_KEY[i % key_len]
+                decrypted_char = chr(byte ^ ord(key_char))
+                decrypted += decrypted_char
+            
+            return decrypted
+        except Exception as e:
+            print(f"Decryption error: {e}")
+            return None
     
     def fetch_message(self):
-        """Fetch message from GitHub"""
+        """Fetch and decrypt message from GitHub - memory efficient version"""
         if not self.wifi_connected:
             return
         
@@ -141,39 +200,53 @@ class MusicPlayer:
             response = urequests.get(MESSAGE_URL)
             
             if response.status_code == 200:
-                message_text = response.text.strip()
-                print(f"Fetched message: {message_text}")
+                encrypted_text = response.text.strip()
+                print("Fetched encrypted message")
                 
-                # Split message into lines for display (max 21 chars per line for OLED)
-                lines = []
-                words = message_text.split()
-                current_line = ""
+                # Try to decrypt the message
+                message_text = self.simple_decrypt(encrypted_text)
                 
-                for word in words:
-                    if len(current_line + " " + word) <= 21:  # OLED character limit
-                        if current_line:
-                            current_line += " " + word
+                if message_text:
+                    print(f"Decrypted message: {message_text}")
+                    
+                    # Split message into lines for display (max 21 chars per line for OLED)
+                    lines = []
+                    words = message_text.split()
+                    current_line = ""
+                    
+                    for word in words:
+                        if len(current_line + " " + word) <= 21:  # OLED character limit
+                            if current_line:
+                                current_line += " " + word
+                            else:
+                                current_line = word
                         else:
+                            if current_line:
+                                lines.append(current_line)
                             current_line = word
-                    else:
-                        if current_line:
-                            lines.append(current_line)
-                        current_line = word
-                
-                if current_line:
-                    lines.append(current_line)
-                
-                # Limit to 4 lines (OLED height limitation)
-                self.message_lines = lines[:4] if lines else ["HBD Saloni", "   <3"]
-                print(f"Message lines: {self.message_lines}")
+                    
+                    if current_line:
+                        lines.append(current_line)
+                    
+                    # Limit to 4 lines (OLED height limitation)
+                    self.message_lines = lines[:4] if lines else ["HBD Saloni", "   <3"]
+                    print(f"Message lines: {self.message_lines}")
+                    
+                    # Update display with new message
+                    self.display_message()
+                    
+                    # Update fetch timestamp
+                    self.last_message_fetch = time.ticks_ms()
+                else:
+                    print("Failed to decrypt message - using default")
             else:
                 print(f"HTTP error: {response.status_code}")
             
             response.close()
+            del response  # Free memory
             
         except Exception as e:
             print(f"Error fetching message: {e}")
-            print("Using default message")
     
     def display_message(self):
         """Display birthday message on OLED"""
@@ -199,8 +272,11 @@ class MusicPlayer:
         print("Message displayed")
     
     def stop_tone(self):
-        """Stop buzzer"""
-        self.buzzer.duty(0)
+        """Stop buzzer simply and reliably"""
+        try:
+            self.buzzer.duty(0)
+        except Exception as e:
+            print(f"Error stopping buzzer: {e}")
     
     def play_tone(self, freq):
         """Play frequency on buzzer"""
@@ -223,6 +299,8 @@ class MusicPlayer:
     
     def start_song(self):
         """Start playing a randomly selected song"""
+        # Make sure buzzer is stopped before starting
+        self.stop_tone()
         self.current_song = random.randint(0, 1)
         self.playing = True
         self.note_index = 0
@@ -232,7 +310,7 @@ class MusicPlayer:
     def stop_song(self):
         """Stop the current song"""
         self.playing = False
-        self.stop_tone()
+        self.stop_tone()  # Ensure buzzer stops
         print("Song stopped!")
     
     def update_song(self):
@@ -250,16 +328,26 @@ class MusicPlayer:
             current_melody = melody2
             current_durations = durations2
         
+        # Bounds check to prevent index errors
+        if self.note_index >= len(current_melody) or self.note_index >= len(current_durations):
+            # Song finished - stop everything
+            self.playing = False
+            self.stop_tone()
+            print("Song finished!")
+            return
+        
         # Check if it's time for the next note
         if time.ticks_diff(now, self.last_note_time) >= current_durations[self.note_index]:
-            if self.note_index < len(current_melody):
-                self.play_tone(current_melody[self.note_index])
-                self.note_index += 1
-                self.last_note_time = now
-            else:
+            # Play current note
+            self.play_tone(current_melody[self.note_index])
+            self.note_index += 1
+            self.last_note_time = now
+            
+            # Check if we've reached the end
+            if self.note_index >= len(current_melody):
                 # Song finished
-                self.stop_tone()
                 self.playing = False
+                self.stop_tone()
                 print("Song finished!")
     
     def check_button(self):
@@ -278,6 +366,28 @@ class MusicPlayer:
     def run(self):
         """Main application loop"""
         while True:
+            current_time = time.ticks_ms()
+            
+            # Check if it's time to retry WiFi connection (but not while playing music)
+            if (not self.wifi_connected and 
+                not self.wifi_connecting and 
+                not self.playing and  # Don't scan WiFi while music is playing
+                time.ticks_diff(current_time, self.last_wifi_check) >= self.wifi_check_interval):
+                self.last_wifi_check = current_time
+                self.setup_wifi()
+            
+            # Check if it's time to fetch new message (every 10 minutes when connected and not playing)
+            if (self.wifi_connected and 
+                not self.playing and
+                time.ticks_diff(current_time, self.last_message_fetch) >= self.message_fetch_interval):
+                print("Fetching updated message...")
+                self.fetch_message()
+            
+            # Check WiFi connection status (non-blocking)
+            if self.wifi_connecting:
+                self.check_wifi_connection()
+            
+            # Always check button and update music - never block these!
             self.check_button()
             self.update_song()
             time.sleep_ms(50)
