@@ -5,6 +5,7 @@
 # - OLED display shows "HBD Saloni <3" or fetched message
 # - PWM buzzer for music playback
 # - WiFi connectivity to fetch messages
+# - XOR encryption for messages
 
 from machine import Pin, PWM, I2C
 import time
@@ -12,6 +13,7 @@ import random
 import ssd1306
 import network
 import urequests
+import binascii
 
 # Pin definitions
 BUTTON_PIN = 2
@@ -30,8 +32,8 @@ WIFI_NETWORKS = {
 # GitHub raw URL for the message
 MESSAGE_URL = "https://raw.githubusercontent.com/0x0elliot/message-for-sal/main/message.txt"
 
-# Simple encryption key (change this for security)
-ENCRYPTION_KEY = "37467725117034429006982607598819"  # 13 characters - change this!
+# XOR encryption key (must match the Python encrypter key)
+ENCRYPTION_KEY = "SaloniKey2025"  # Change this to match your Python encrypter
 
 # Complete Happy Birthday Melody (in Hz) - Key of C
 melody1 = [
@@ -170,33 +172,28 @@ class MusicPlayer:
             self.wifi_connecting = False
             print("WiFi connection timeout - will retry in 10 seconds")
     
-    def simple_decrypt(self, encrypted_text):
-        """Simple Caesar cipher decryption - no imports needed"""
+    def xor_decrypt(self, hex_string):
+        """XOR decrypt a hex string to readable text - matches Python encrypter"""
         try:
             # Remove any whitespace
-            encrypted_text = encrypted_text.strip().replace('\n', '').replace('\r', '')
+            hex_string = hex_string.strip().replace('\n', '').replace('\r', '')
             
-            # Simple Caesar cipher with shift based on key
-            shift = len(ENCRYPTION_KEY) % 26  # Use key length as shift
+            # Convert hex to bytes
+            encrypted_bytes = binascii.unhexlify(hex_string)
+            
+            # XOR decrypt using the key
             decrypted = ""
+            key_len = len(ENCRYPTION_KEY)
             
-            for char in encrypted_text:
-                if char.isalpha():
-                    # Shift letters
-                    ascii_offset = 65 if char.isupper() else 97
-                    shifted = ((ord(char) - ascii_offset - shift) % 26) + ascii_offset
-                    decrypted += chr(shifted)
-                elif char.isdigit():
-                    # Shift numbers
-                    shifted = ((int(char) - shift) % 10)
-                    decrypted += str(shifted)
-                else:
-                    # Keep other characters as-is
-                    decrypted += char
+            for i, byte in enumerate(encrypted_bytes):
+                key_char = ENCRYPTION_KEY[i % key_len]
+                decrypted_char = chr(byte ^ ord(key_char))
+                decrypted += decrypted_char
             
             return decrypted
+            
         except Exception as e:
-            print(f"Decryption error: {e}")
+            print(f"XOR decryption error: {e}")
             return None
     
     def fetch_message(self):
@@ -209,11 +206,11 @@ class MusicPlayer:
             response = urequests.get(MESSAGE_URL)
             
             if response.status_code == 200:
-                encrypted_text = response.text.strip()
+                encrypted_hex = response.text.strip()
                 print("Fetched encrypted message")
                 
-                # Try to decrypt the message
-                message_text = self.simple_decrypt(encrypted_text)
+                # Try to decrypt the message using XOR
+                message_text = self.xor_decrypt(encrypted_hex)
                 
                 if message_text:
                     print(f"Decrypted message: {message_text}")
